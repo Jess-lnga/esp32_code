@@ -58,72 +58,61 @@ void loop() {
 
 #include <WiFi.h>
 #include <WebServer.h>
-#include <ESP32Ping.h>  // <--- Ajoute cette librairie
+#include <ESP32Ping.h>
 
 const char* ssid = "Redmi";  
 const char* password = "Ljhki23132"; 
 
 WebServer server(80);
 
+// Définir les pins pour UART2 (pour communiquer avec la STM32)
+#define RXD2 16  // Pin 16 pour RX (Serial2)
+#define TXD2 17  // Pin 17 pour TX (Serial2)
+
 void handlePost() {
   if (server.hasArg("message")) {
     String message = server.arg("message");
-    Serial.println("Message reçu: " + message);
-    server.send(200, "text/plain", "ESP32: message reçu");
+
+    Serial.println("Message reçu : " + message);
+
+    Serial2.print(message);  // Envoi du message sur l'UART2
+    Serial2.println();       // Optionnel: ajouter un saut de ligne après le message
+
+    // Affichage dans le moniteur série de l'ESP32
+    Serial.println("Message envoyé à la STM32 via UART2");
+
+    server.send(200, "text/plain", "ESP32: message reçu et envoyé à la STM32");
   } else {
     server.send(400, "text/plain", "Pas de message reçu");
   }
 }
 
 void setup() {
-  Serial.begin(115200);
 
-  while (!Serial) 
-  {
-    delay(100);
-  }
+  Serial.begin(115200);  
+  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2); // UART2 avec GPIO16 (RX) et GPIO17 (TX)
 
+  while (!Serial2);  // Attente de la connexion de l'UART2
+
+  Serial.println("Initialisation de l'ESP32...");
+
+  // Connexion au réseau Wi-Fi
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   delay(1000);
 
-  Serial.println("Scan des réseaux Wi-Fi...");
-  
-  int n = WiFi.scanNetworks(); // Scanner les réseaux disponibles
-  
-  if (n == 0) {
-    Serial.println("Aucun réseau trouvé.");
-  } else {
-    Serial.print(n);
-    Serial.println(" réseaux trouvés :");
-    
-    // Afficher les SSID des réseaux trouvés
-    for (int i = 0; i < n; ++i) 
-    {
-      Serial.print(i + 1);
-      Serial.print(": ");
-      Serial.print(WiFi.SSID(i));  // Affiche le SSID du réseau
-      Serial.print(" - Signal: ");
-      Serial.print(WiFi.RSSI(i));  // Affiche la puissance du signal
-      Serial.println(" dBm");
-      delay(10);
-    }
-  }
-  WiFi.disconnect();
-
-  Serial.println("Connexion au réseau Wi-Fi...");
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
-    Serial.println("Tentative de connexion...");
+    Serial.println("Tentative de connexion Wi-Fi...");
   }
 
-  Serial.println("Connecté !");
+  Serial.println("Connecté au Wi-Fi !");
   Serial.print("Adresse IP: ");
   Serial.println(WiFi.localIP());
 
-  // TEST PING ici :
+  // Test de connexion avec un ping
   Serial.println("Ping de 8.8.8.8...");
   if (Ping.ping("8.8.8.8")) {
     Serial.println("Ping réussi !");
@@ -131,13 +120,18 @@ void setup() {
     Serial.println("Échec du ping !");
   }
 
+  // Définir la route HTTP pour recevoir les messages
   server.on("/send", HTTP_POST, handlePost);
   server.begin();
+
+  Serial.println("Serveur HTTP démarré.");
 }
 
 void loop() {
-  server.handleClient(); 
+  server.handleClient();  // Gérer les requêtes HTTP reçues
 }
+
+
 
 
 
