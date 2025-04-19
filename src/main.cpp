@@ -56,101 +56,44 @@ void loop() {
 }
 */
 
-#include <WiFi.h>
-#include <WebServer.h>
-#include <ESP32Ping.h>  // Librairie pour le ping
+#include "BluetoothSerial.h"
 
-const char* ssid = "Redmi";  
-const char* password = "Ljhki23132"; 
+// Créer un objet Bluetooth
+BluetoothSerial SerialBT;
 
-WebServer server(80);
+void setup() {
+  // Démarrer le port série classique pour voir les logs dans le moniteur série
+  Serial.begin(115200);
+  Serial.println("Démarrage Bluetooth...");
 
-void handlePost() {
-  if (server.hasArg("message")) 
-  {
-    String message = server.arg("message");
-
-    Serial.println("Message reçu : " + message);
-
-    //Serial.print(message);  // Envoi du message sur l'UART2
-    Serial.println();       // Optionnel: ajouter un saut de ligne après le message
-
-    // Affichage dans le moniteur série de l'ESP32
-    Serial.println("Message envoyé à la STM32 via UART2");
-
-    server.send(200, "text/plain", "ESP32: message reçu et envoyé à la STM32");
-  } else {
-    server.send(400, "text/plain", "Pas de message reçu");
+  // Démarrer Bluetooth avec un nom visible
+  if (!SerialBT.begin("ESP32_BT_Test")) { // Tu peux changer "ESP32_BT_Test"
+    Serial.println("Erreur de démarrage Bluetooth");
+    while (true); // Bloque ici si erreur
   }
+  Serial.println("Bluetooth prêt. Connecte-toi avec ton téléphone !");
 }
 
-void setup() 
-{
-  Serial.begin(115200);  // Initialisation de l'UART par défaut
+void loop() {
+  // Si on reçoit quelque chose via Bluetooth
+  if (SerialBT.available()) {
+    String incoming = SerialBT.readStringUntil('\n'); // Lecture jusqu'au retour à la ligne
+    Serial.print("Reçu via Bluetooth : ");
+    Serial.println(incoming);
 
-  while (!Serial) 
-  {
-    delay(100);
+    // Echo : on renvoie ce qu'on reçoit
+    SerialBT.println("J'ai bien reçu ton message");
   }
 
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  delay(1000);
-
-  Serial.println("Scan des réseaux Wi-Fi...");
-
-  int n = WiFi.scanNetworks(); 
+  // Tu peux aussi envoyer des trucs périodiquement
+  // SerialBT.println("Ping depuis ESP32 !");
   
-  if (n == 0) 
-  {
-    Serial.println("Aucun réseau trouvé.");
-  } else {
-    Serial.print(n);
-    Serial.println(" réseaux trouvés :");
-    
-    for (int i = 0; i < n; ++i) 
-    {
-      Serial.print(i + 1);
-      Serial.print(": ");
-      Serial.print(WiFi.SSID(i));
-      Serial.print(" - Signal: ");
-      Serial.print(WiFi.RSSI(i));
-      Serial.println(" dBm");
-      delay(10);
-    }
-  }
-  
-  WiFi.disconnect();
-
-  Serial.println("Connexion au réseau Wi-Fi...");
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) 
-  {
-    delay(1000);
-    Serial.println("Tentative de connexion...");
-  }
-
-  Serial.println("Connecté !");
-  Serial.print("Adresse IP: ");
-  Serial.println(WiFi.localIP());
-
-  Serial.println("Ping de 8.8.8.8...");
-  if (Ping.ping("8.8.8.8")) 
-  {
-    Serial.println("Ping réussi !");
-  } else {
-    Serial.println("Échec du ping !");
-  }
-
-  server.on("/send", HTTP_POST, handlePost);
-  server.begin();
+  delay(100);
 }
 
-void loop() 
-{
-  server.handleClient(); 
-}
+
+
+
 
 
 
