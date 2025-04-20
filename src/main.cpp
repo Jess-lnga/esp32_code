@@ -1,56 +1,41 @@
 #include "BluetoothSerial.h"
+#include "esp_bt_device.h"
+#include "esp_gap_bt_api.h"
 
-// Création de l'objet Bluetooth Serial
+// Création de l'objet Bluetooth
 BluetoothSerial SerialBT;
 
-String ePuckAddress = "24:0A:C4:82:5F:9A"; // Adresse MAC de ton e-puck
-
-void connectToEPuck() 
-{
-  Serial.println("Tentative de connexion à l'e-puck...");
-
-  while (!SerialBT.connect(ePuckAddress)) 
-  {
-    Serial.println("Connexion échouée, nouvel essai dans 1 seconde...");
-    delay(1000);
+// Fonction appelée à chaque événement Bluetooth trouvé
+void btCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
+  if (event == ESP_BT_GAP_DISC_RES_EVT) {
+    char bda_str[18];
+    snprintf(bda_str, sizeof(bda_str),
+             "%02x:%02x:%02x:%02x:%02x:%02x",
+             param->disc_res.bda[0], param->disc_res.bda[1], param->disc_res.bda[2],
+             param->disc_res.bda[3], param->disc_res.bda[4], param->disc_res.bda[5]);
+    
+    Serial.print("Appareil trouvé : ");
+    Serial.println(bda_str);
   }
-
-  Serial.println("Connexion à l'e-puck réussie !");
 }
 
-void setup() 
-{
+void setup() {
   Serial.begin(115200);
-  Serial.println("ESP32 Bluetooth Client - Démarrage...");
+  Serial.println("ESP32 Bluetooth Scanner - Recherche des périphériques...");
 
-  connectToEPuck();
+  if (!SerialBT.begin("ESP32_Scanner", true)) {  // true = mode client
+    Serial.println("Erreur de démarrage du Bluetooth");
+    while (1);
+  }
+  
+  // Initialiser l'événement de scan
+  esp_bt_gap_register_callback(btCallback);
+
+  // Commencer la découverte
+  esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
+  // 10 secondes de scan, mode "General Inquiry"
 }
 
 void loop() {
-
-  if (!SerialBT.connected()) 
-  {
-    Serial.println("Connexion perdue !");
-    SerialBT.disconnect(); 
-    connectToEPuck();
-  }
-
-  // Si l'utilisateur écrit quelque chose dans le Serial Monitor, l'envoyer à l'e-puck
-  if (Serial.available()) {
-    String input = Serial.readStringUntil('\n');
-    SerialBT.println(input);
-    Serial.print("Envoyé au e-puck : ");
-    Serial.println(input);
-  }
-
-  // Si le e-puck envoie un message, l'afficher sur le Serial Monitor
-  if (SerialBT.available()) {
-    String incoming = SerialBT.readStringUntil('\n');
-    Serial.print("Reçu du e-puck : ");
-    Serial.println(incoming);
-  }
-
-  delay(10); // Petit delay pour éviter de saturer le processeur
+  // On ne fait rien dans la boucle, tout se passe dans la fonction callback
 }
-
-
