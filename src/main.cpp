@@ -14,14 +14,13 @@ void loop()
   reconnect_to_wifi();
   reconnect_to_bridge();
 
-  /// Code pour tester la communication du système {e-puck + bridge + esp32}
   if(i==0)
   {
     send_msg_to_epuck("avance");
     wait_msg_treated();
   }else if(i==1)
   {
-    send_msg_to_epuck("tourne a gauche");
+    send_msg_to_epuck("gauche");
     wait_msg_treated();
 
   }else if(i==2)
@@ -31,16 +30,20 @@ void loop()
 
   }else if(i==3)
   {
-    send_msg_to_epuck("tourne a droite");
+    send_msg_to_epuck("droite");
     wait_msg_treated();
-    i = 0;
   }
+
   delay(1000);
-  
   
   send_msg_to_epuck("stop");
   wait_msg_treated();
-  ++i;
 
+  if(i==3)
+  {
+    i=0;
+  }else{
+    ++i;
+  }
   delay(1000);
 }

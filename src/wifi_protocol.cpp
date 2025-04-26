@@ -88,6 +88,7 @@ void wait_ack(String formated_message)
 
 void send_msg_to_bridge(String message, bool wait)
 {
+    message.trim();
     reconnect_to_bridge();
     wait_ack("[br-type]"+ message);
 }
@@ -103,9 +104,9 @@ void send_msg_to_epuck(String message)
 void send_ack()
 {
     reconnect_to_bridge(); 
-    delay(COOLING_TIME);
-
+    
     client.println("[br-type]ACK");
+    delay(COOLING_TIME);
 }
 
 void wait_msg()
@@ -147,6 +148,9 @@ void wait_msg_treated()
             if (response == "TRT")
             {
                 Serial.println("Message Treated by epuck!");
+                
+                delay(COOLING_TIME);
+                send_ack();
                 msg_treated = true;
             }
         }
