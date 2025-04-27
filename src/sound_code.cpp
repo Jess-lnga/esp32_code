@@ -1,5 +1,8 @@
 #include "sound_code.h"
 
+#include <math.h>    
+#include <stdlib.h>  
+
 // --- CONFIG I2S ---
 // Microphone I2S pins
 #define I2S_MIC_SERIAL_CLOCK   25  // BCLK
@@ -9,7 +12,7 @@
 // Speaker I2S pins (utilise des broches différentes)
 #define I2S_SPEAKER_SERIAL_CLOCK  32  // BCLK (différente)
 #define I2S_SPEAKER_LEFT_RIGHT_CLOCK 33  // WS/LRC (différente)
-#define I2S_SPEAKER_SERIAL_DATA 27  // DIN
+#define I2S_SPEAKER_SERIAL_DATA 26  // DIN
 
 #define I2S_PORT_MIC I2S_NUM_0
 #define I2S_PORT_SPEAKER I2S_NUM_1
@@ -86,40 +89,34 @@ void setupI2SSpeaker()
 // --- RECORD AUDIO ---
 void recordAudio() 
 {
-  //----------------------->Serial.println("Recording...");
+  Serial.println("Enregistrement en cours");
   i2s_zero_dma_buffer(I2S_PORT_MIC);
 
   size_t bytesRead = 0;
   int32_t sample = 0;
   int16_t sample16 = 0;
 
-  // Switch I2S mode to RX
-  //setupI2SMic();
-
   uint32_t totalSamples = SAMPLE_RATE * RECORD_TIME_SEC;
   for (uint32_t i = 0; i < totalSamples; i++) 
   {
+    
     i2s_read(I2S_PORT_MIC, &sample, sizeof(sample), &bytesRead, portMAX_DELAY);
     sample16 = sample >> 8;
+    //Serial.println(sample16);
     audioBuffer[i] = sample16;
   }
-  //----------------------->Serial.println("Recording done!");
-
-  // Switch I2S mode back to TX
-  //setupI2SSpeaker();
 }
 
 // --- PLAY AUDIO ---
 void playAudio() 
 {
-    if (audioBuffer[0] != 0) 
-    {
-        for (uint32_t i = 0; i < BUFFER_SIZE; i++) 
-        {
-            size_t bytesWritten;
-            i2s_write(I2S_PORT_SPEAKER, &audioBuffer[i], sizeof(audioBuffer[i]), &bytesWritten, portMAX_DELAY);
-        }
-    }
+  for (uint32_t i = 0; i < BUFFER_SIZE; i++) 
+  {
+    size_t bytesWritten;
+    i2s_write(I2S_PORT_SPEAKER, &audioBuffer[i], sizeof(audioBuffer[i]), &bytesWritten, portMAX_DELAY);
+  }
+
+  delay(2000);
 }
 
 void setup_sound()
@@ -127,10 +124,45 @@ void setup_sound()
   audioBuffer = (int16_t*)malloc(BUFFER_SIZE * sizeof(int16_t));
   if (audioBuffer == nullptr) 
   {
-    //----------------------->Serial.println("Erreur allocation mémoire !");
+    Serial.println("Erreur allocation mémoire !");
     while (true);
   }
 
   setupI2SMic();
   setupI2SSpeaker();
+}
+
+void playFreq(uint16_t freq, uint32_t durationMs) 
+{
+  // Nombre total d'échantillons à jouer
+  const uint32_t totalSamples = (SAMPLE_RATE * durationMs) / 1000;
+  // Taille d'un cycle complet de la sinusoïde
+  const uint16_t periodSamples = SAMPLE_RATE / freq;
+  // Tampon pour une période
+  int16_t* toneBuf = (int16_t*) malloc(periodSamples * sizeof(int16_t));
+  if (!toneBuf) return;
+
+  // Amplitude max (à ajuster si nécessaire)
+  const int16_t amplitude = 2000;
+
+  // Génération d'une période de sinusoïde
+  for (uint16_t i = 0; i < periodSamples; i++) {
+    float angle = 2.0f * M_PI * i / float(periodSamples);
+    toneBuf[i] = int16_t(amplitude * sinf(angle));
+  }
+
+  // Écriture répétée jusqu'à couvrir totalSamples
+  uint32_t played = 0;
+  while (played < totalSamples) {
+    uint16_t chunk = (periodSamples < (totalSamples - played)) ? periodSamples : (totalSamples - played);
+    size_t bytesWritten = 0;
+    i2s_write(I2S_PORT_SPEAKER,
+              toneBuf,
+              chunk * sizeof(int16_t),
+              &bytesWritten,
+              portMAX_DELAY);
+    played += chunk;
+  }
+
+  free(toneBuf);
 }

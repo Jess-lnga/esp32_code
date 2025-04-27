@@ -1,6 +1,7 @@
 #ifndef SND_CD
 #define SND_CD
 
+#include <Arduino.h>
 #include <driver/i2s.h>
 
 void setupI2SMic();
@@ -9,5 +10,6 @@ void setup_sound();
 
 void recordAudio();
 void playAudio();
+void playFreq(uint16_t freq, uint32_t durationMs);
 
 #endif
