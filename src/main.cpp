@@ -1,131 +1,165 @@
 #include <WiFi.h>
-#include <WebServer.h>
-#include <SPIFFS.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 #include <driver/i2s.h>
 
-const char* ssid = "TON_SSID_WIFI";
-const char* password = "TON_MOT_DE_PASSE";
+// --- CONFIG Wi-Fi ---
+const char* ssid = "Redmi";
+const char* password = "Ljhki23132";
 
-WebServer server(80);
+// --- CONFIG SERVER ---
+AsyncWebServer server(80);
 
-#define I2S_NUM         I2S_NUM_0  // Utiliser l'I2S numéro 0
-#define I2S_BCK_PIN     25         // Bit Clock -> BCLK
-#define I2S_WS_PIN      22         // Word Select -> LRC
-#define I2S_DATA_PIN    26         // Data -> DIN
+// --- CONFIG I2S ---
+#define I2S_MIC_SERIAL_CLOCK   25  // BCLK
+#define I2S_MIC_LEFT_RIGHT_CLOCK 22  // WS/LRC
+#define I2S_MIC_SERIAL_DATA    34  // DO
 
-void initI2S() 
-{
-  // Configuration de l'I2S en mode Master TX
+#define I2S_SPEAKER_SERIAL_CLOCK  25  // BCLK (partagé)
+#define I2S_SPEAKER_LEFT_RIGHT_CLOCK 22  // WS/LRC (partagé)
+#define I2S_SPEAKER_SERIAL_DATA 26  // DIN
+
+#define I2S_PORT I2S_NUM_0
+
+// --- AUDIO BUFFER ---
+#define SAMPLE_RATE     16000  // 16kHz
+#define SAMPLE_BITS     16     // 16bits
+#define RECORD_TIME_SEC 3      // <<< Réduit de 10s à 3s
+#define BUFFER_SIZE (SAMPLE_RATE * RECORD_TIME_SEC)
+
+int16_t* audioBuffer = nullptr;
+volatile bool newRecordRequested = false;
+
+// --- SETUP Wi-Fi ---
+void setupWiFi() {
+  WiFi.softAP(ssid, password);
+  Serial.print("WiFi AP started. IP address: ");
+  Serial.println(WiFi.softAPIP());
+}
+
+// --- SETUP I2S ---
+void setupI2SMic() {
   i2s_config_t i2s_config = {
-    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
-    .sample_rate = 16000,  // 16kHz adapté au fichier (à ajuster si besoin)
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
+    .sample_rate = SAMPLE_RATE,
+    .bits_per_sample = (i2s_bits_per_sample_t)SAMPLE_BITS,
     .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-    .communication_format = I2S_COMM_FORMAT_I2S,
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S, // <<< corrige deprecated
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count = 8,
-    .dma_buf_len = 64,
+    .dma_buf_len = 1024,
     .use_apll = false,
-    .tx_desc_auto_clear = true
+    .tx_desc_auto_clear = true,
+    .fixed_mclk = 0
   };
 
   i2s_pin_config_t pin_config = {
-    .bck_io_num = I2S_BCK_PIN,
-    .ws_io_num = I2S_WS_PIN,
-    .data_out_num = I2S_DATA_PIN,
-    .data_in_num = I2S_PIN_NO_CHANGE
+    .bck_io_num = I2S_MIC_SERIAL_CLOCK,
+    .ws_io_num = I2S_MIC_LEFT_RIGHT_CLOCK,
+    .data_out_num = -1,
+    .data_in_num = I2S_MIC_SERIAL_DATA
   };
 
-  i2s_driver_install(I2S_NUM, &i2s_config, 0, NULL);
-  i2s_set_pin(I2S_NUM, &pin_config);
+  i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
+  i2s_set_pin(I2S_PORT, &pin_config);
 }
 
-void handleUploadAudio() 
-{
-  HTTPUpload& upload = server.upload();
-  static File file;
+void setupI2SSpeaker() {
+  i2s_config_t i2s_config = {
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+    .sample_rate = SAMPLE_RATE,
+    .bits_per_sample = (i2s_bits_per_sample_t)SAMPLE_BITS,
+    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S, // <<< corrige deprecated
+    .intr_alloc_flags = 0,
+    .dma_buf_count = 8,
+    .dma_buf_len = 1024,
+    .use_apll = false,
+    .tx_desc_auto_clear = true,
+    .fixed_mclk = 0
+  };
 
-  if (upload.status == UPLOAD_FILE_START) {
-    Serial.printf("Upload start: %s\n", upload.filename.c_str());
-    String path = "/audio_received.wav";
-    file = SPIFFS.open(path, FILE_WRITE);
-    if (!file) {
-      Serial.println("Erreur ouverture fichier !");
-      return;
+  i2s_pin_config_t pin_config = {
+    .bck_io_num = I2S_SPEAKER_SERIAL_CLOCK,
+    .ws_io_num = I2S_SPEAKER_LEFT_RIGHT_CLOCK,
+    .data_out_num = I2S_SPEAKER_SERIAL_DATA,
+    .data_in_num = -1
+  };
+
+  i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
+  i2s_set_pin(I2S_PORT, &pin_config);
+}
+
+// --- SERVER HANDLER ---
+void setupServer() {
+  server.on("/record", HTTP_GET, [](AsyncWebServerRequest *request){
+    newRecordRequested = true;
+    request->send(200, "text/plain", "Recording triggered!");
+  });
+  server.begin();
+}
+
+// --- RECORD AUDIO ---
+void recordAudio() {
+  Serial.println("Recording...");
+  i2s_zero_dma_buffer(I2S_PORT);
+
+  size_t bytesRead = 0;
+  int32_t sample = 0;
+  int16_t sample16 = 0;
+
+  // Switch I2S mode to RX
+  setupI2SMic();
+
+  uint32_t totalSamples = SAMPLE_RATE * RECORD_TIME_SEC;
+  for (uint32_t i = 0; i < totalSamples; i++) {
+    i2s_read(I2S_PORT, &sample, sizeof(sample), &bytesRead, portMAX_DELAY);
+    sample16 = sample >> 8;
+    audioBuffer[i] = sample16;
+  }
+  Serial.println("Recording done!");
+
+  // Switch I2S mode back to TX
+  setupI2SSpeaker();
+}
+
+// --- PLAY AUDIO LOOP ---
+void playAudioLoop() {
+  while (!newRecordRequested) {
+    Serial.println("Playing audio...");
+    for (uint32_t i = 0; i < BUFFER_SIZE; i++) {
+      size_t bytesWritten;
+      i2s_write(I2S_PORT, &audioBuffer[i], sizeof(audioBuffer[i]), &bytesWritten, portMAX_DELAY);
     }
-  } else if (upload.status == UPLOAD_FILE_WRITE) {
-    if (file) {
-      file.write(upload.buf, upload.currentSize);
-    }
-  } else if (upload.status == UPLOAD_FILE_END) {
-    if (file) {
-      file.close();
-      Serial.println("Upload terminé.");
-      server.send(200, "text/plain", "Upload réussi !");
-    } else {
-      server.send(500, "text/plain", "Erreur serveur.");
-    }
+    Serial.println("Waiting 2 seconds...");
+    delay(2000);
   }
 }
 
-void setup() 
-{
+void setup() {
   Serial.begin(115200);
 
-  WiFi.begin(ssid, password);
-  Serial.print("Connexion au WiFi...");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nConnecté!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
-
-  if (!SPIFFS.begin(true)) {
-    Serial.println("Erreur SPIFFS...");
-    return;
+  // Allocation de buffer
+  audioBuffer = (int16_t*)malloc(BUFFER_SIZE * sizeof(int16_t));
+  if (audioBuffer == nullptr) {
+    Serial.println("Erreur allocation mémoire !");
+    while (true);
   }
 
-  server.on("/upload", HTTP_POST, []() { server.send(200); }, handleUploadAudio);
-  server.begin();
-  Serial.println("Serveur lancé !");
-
-  initI2S(); // Initialisation I2S
+  setupWiFi();
+  setupServer();
+  setupI2SMic();
 }
 
 void loop() {
-  server.handleClient();
-  playAudioLoop();
-}
-
-void playAudioLoop() 
-{
-  static unsigned long lastPlayed = 0;
-  unsigned long currentMillis = millis();
-
-  if (currentMillis - lastPlayed >= 5000) { // Attente de 5 secondes
-    lastPlayed = currentMillis;
-    File audioFile = SPIFFS.open("/audio_received.wav", "r");
-    
-    if (!audioFile) {
-      Serial.println("Pas de fichier audio à jouer !");
-      return;
-    }
-
-    Serial.println("Lecture du fichier audio...");
-    uint8_t buffer[512];
-    size_t bytesRead;
-    size_t bytesWritten;
-
-    // Sauter l'entête WAV (44 octets typiques)
-    audioFile.seek(44, SeekSet);
-
-    while ((bytesRead = audioFile.read(buffer, sizeof(buffer))) > 0) {
-      i2s_write(I2S_NUM, buffer, bytesRead, &bytesWritten, portMAX_DELAY);
-    }
-
-    audioFile.close();
-    Serial.println("Lecture terminée.");
+  if (newRecordRequested) {
+    newRecordRequested = false;
+    recordAudio();
   }
+
+  if (audioBuffer[0] != 0) {
+    playAudioLoop();
+  }
+
+  delay(100);
 }
