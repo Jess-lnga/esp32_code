@@ -31,10 +31,20 @@ int16_t* audioBuffer = nullptr;
 volatile bool newRecordRequested = false;
 
 // --- SETUP Wi-Fi ---
-void setupWiFi() {
-  WiFi.softAP(ssid, password);
-  Serial.print("WiFi AP started. IP address: ");
-  Serial.println(WiFi.softAPIP());
+void setupWiFi() 
+{
+    Serial.print("Trying to connect to Wifi");
+    WiFi.begin(ssid, password);
+  
+    while (WiFi.status() != WL_CONNECTED) 
+    {
+      delay(500);
+      Serial.println(".");
+    }
+
+    Serial.print("Connected to Wifi!");
+    Serial.print("IP ESP32 : ");
+    Serial.println(WiFi.localIP());
 }
 
 // --- SETUP I2S ---
