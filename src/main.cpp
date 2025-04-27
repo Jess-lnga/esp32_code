@@ -8,7 +8,8 @@ const char* ssid = "Redmi";
 const char* password = "Ljhki23132";
 
 // --- CONFIG SERVER ---
-AsyncWebServer server(80);
+//AsyncWebServer server(80);
+WebServer server(80);
 
 // --- CONFIG I2S ---
 #define I2S_MIC_SERIAL_CLOCK   25  // BCLK
@@ -101,11 +102,34 @@ void setupI2SSpeaker() {
 }
 
 // --- SERVER HANDLER ---
+void handlePost() {
+  if (server.hasArg("message")) 
+  {
+    String message = server.arg("message");
+
+    Serial.println("Message reçu : " + message);
+
+    //Serial.print(message);  // Envoi du message sur l'UART2
+    Serial.println();       // Optionnel: ajouter un saut de ligne après le message
+
+    // Affichage dans le moniteur série de l'ESP32
+    Serial.println("Message envoyé à la STM32 via UART2");
+
+    server.send(200, "text/plain", "ESP32: message reçu et envoyé à la STM32");
+  } else {
+    server.send(400, "text/plain", "Pas de message reçu");
+  }
+}
+
 void setupServer() {
+/*
   server.on("/record", HTTP_GET, [](AsyncWebServerRequest *request){
     newRecordRequested = true;
     request->send(200, "text/plain", "Recording triggered!");
   });
+  server.begin();
+*/
+  server.on("/send", HTTP_POST, handlePost);
   server.begin();
 }
 
