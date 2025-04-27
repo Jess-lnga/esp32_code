@@ -1,6 +1,9 @@
 #include <WiFi.h>
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
+#include <WebServer.h>
+#include <ESP32Ping.h>
+
+//#include <AsyncTCP.h>
+//#include <ESPAsyncWebServer.h>
 #include <driver/i2s.h>
 
 // --- CONFIG Wi-Fi ---
@@ -108,6 +111,11 @@ void handlePost() {
     String message = server.arg("message");
 
     Serial.println("Message reçu : " + message);
+
+    if(message == "Record")
+    {
+      newRecordRequested = true;
+    }
 
     //Serial.print(message);  // Envoi du message sur l'UART2
     Serial.println();       // Optionnel: ajouter un saut de ligne après le message
