@@ -1,13 +1,16 @@
 
 #include "wifi_code.h"
 #include "sound_code.h"
+#include "robot_arm.h"
 
 void setup() 
 {
   Serial.begin(115200);
   
   setup_sound();
-  setup_comm();
+  //setup_comm();
+
+  setup_arm();
 }
 
 void loop() 
@@ -22,18 +25,27 @@ void loop()
 */
 
 
+  /*
   HandleClient();
-
+  
   if (get_request_update()) 
   {
     Serial.println("Nouvel enregistrement demandé!");
     request_treated();
+    
+    playFreq(1000, 1000);
+    delay(10);
+
     recordAudio();
     Serial.println("Enregistrement terminé");
   }
+  */
+  
+  demo_ctrl_servos();
+  playFreq(1000, 1000);
   
 
-  playAudio();
-  delay(100);  
+  //playAudio();
+  delay(10);  
   
 }
