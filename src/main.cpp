@@ -41,11 +41,11 @@ void loop()
   }
   */
   
-  demo_ctrl_servos();
-  playFreq(1000, 1000);
+  demo_ctrl_servos_2();
+  //playFreq(1000, 1000);
   
 
   //playAudio();
-  delay(10);  
+  //delay(10);  
   
 }
